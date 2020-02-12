@@ -150,10 +150,11 @@ if tomo_obj.get_rank() == 0:
     results = np.array([dd_vec, eps, tv_vec, tv0, rmse_vec, time_vec])
     os.makedirs('Results/'+ file_name +'_MPI/', exist_ok=True)
     np.save('Results/' + file_name + '_MPI/results.npy', results)
-    print("tv_vec", tv_vec)
-    print("time_vec", time_vec)
-    print("dd_vec", dd_vec)
-
+    print("rmse_vec: ", rmse_vec)
+    print("tv_vec: ", tv_vec)
+    print("time_vec: ", time_vec)
+    print("dd_vec: ", dd_vec)
+    
 #Get and save the final reconstruction.
 tomo_obj.gather_recon()
 if save_recon and tomo_obj.get_rank()==0: 
