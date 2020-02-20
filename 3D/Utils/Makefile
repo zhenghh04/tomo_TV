@@ -9,6 +9,6 @@ ctvlib: ctvlib.cpp  ctvlib.hpp
 	$(CXX) $(CXXFLAGS) $(EIGEN) $(PYBIND) $(PYBIND11) ctvlib.cpp -o $(PYCONFIG)
 
 mpi_ctvlib: mpi_ctvlib.cpp mpi_ctvlib.hpp
-	$(MPXX) $(CXXFLAGS) $(EIGEN) $(PYBIND) $(PYBIND11) mpi_ctvlib.cpp -o $(MPICONFIG)
+	$(MPXX) $(CXXFLAGS) $(EIGEN) $(PYBIND) $(PYBIND11) mpi_ctvlib.cpp -o $(MPICONFIG) $(HDF5_LIBS)
 clean:
 	rm -rf *.so *.o

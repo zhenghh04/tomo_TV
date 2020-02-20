@@ -78,7 +78,6 @@ public:
     
     // Return projections to python. 
     Mat get_projections();
-    
 };
 
 #endif /* tlib_hpp */

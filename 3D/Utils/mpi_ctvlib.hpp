@@ -78,6 +78,7 @@ public:
     // Return reconstruction to python.
     Mat getRecon(int i);
     void gather_recon();
+  void save_recon(char *f, int);
     // Return projections to python. 
     Mat get_projections();
   int mpi_finalize();

@@ -16,7 +16,7 @@
 #include <random>
 #include <iostream>
 #include <mpi.h>
-
+#include "hdf5.h"
 
 #define PI 3.14159265359
 
@@ -567,6 +567,40 @@ Mat mpi_ctvlib::getRecon(int s)
     return recon_gathered[s];
 }
 
+void mpi_ctvlib::save_recon(char *filename, int type=0) {
+  if (type==0) {
+    if (rank==0) cout << "HDF5 write " << endl; 
+    hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
+    MPI_Info info = MPI_INFO_NULL; 
+    H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, info); 
+    hid_t fd = H5Fcreate(filename, H5F_ACC_TRUNC, H5P_DEFAULT, plist_id);
+    hid_t dxf_id = H5Pcreate(H5P_DATASET_XFER);
+    H5Pset_dxpl_mpio(dxf_id, H5FD_MPIO_COLLECTIVE);
+    hsize_t gdims[3] = {Nslice, Ny, Nz}; 
+    hsize_t ldims[3] = {Nslice_loc, Ny, Nz}; 
+    hsize_t offset[3] = {first_slice, 0, 0};
+    hsize_t count[3] = {1, 1, 1};
+    hid_t fspace = H5Screate_simple(3, gdims, NULL); 
+    hid_t mspace = H5Screate_simple(3, ldims, NULL); 
+    hid_t dset = H5Dcreate(fd, "recon", H5T_NATIVE_FLOAT, fspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT); 
+    H5Sselect_hyperslab(fspace, H5S_SELECT_SET, offset, NULL, ldims, count); 
+    H5Dwrite(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, &recon[0](0, 0)); 
+    H5Pclose(plist_id); 
+    H5Pclose(dxf_id);
+    H5Pclose(fspace); 
+    H5Pclose(mspace); 
+    H5Pclose(dset);
+    H5Fclose(fd);
+  } else {
+    if (rank==0) cout << "MPIO write " << endl; 
+    MPI_File fh; 
+    int rc= MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_RDONLY | MPI_MODE_CREATE,MPI_INFO_NULL, &fh); 
+    MPI_File_write_at(fh, sizeof(float)*first_slice*Ny*Nz, &recon[0](0, 0), Nslice_loc*Ny*Nz, MPI_FLOAT, MPI_STATUS_IGNORE);
+    MPI_File_close(&fh);
+    MPI_File_sync(fh);
+  }
+}
+
 void mpi_ctvlib::gather_recon() 
 {
   int* nloc = new int[nproc];
@@ -631,6 +665,7 @@ PYBIND11_MODULE(mpi_ctvlib, m)
     mpi_ctvlib.def("create_projections", &mpi_ctvlib::create_projections, "Create Projections from Volume");
     mpi_ctvlib.def("getRecon", &mpi_ctvlib::getRecon, "Return the Reconstruction to Python");
     mpi_ctvlib.def("gather_recon", &mpi_ctvlib::gather_recon, "gather reconstruction matrix");
+    mpi_ctvlib.def("save_recon", &mpi_ctvlib::save_recon, "save reconstruction matrix");
     mpi_ctvlib.def("mpi_finalize", &mpi_ctvlib::mpi_finalize, "Finalize the communicator");
     mpi_ctvlib.def("ART", &mpi_ctvlib::ART, "ART Reconstruction");
     mpi_ctvlib.def("sART", &mpi_ctvlib::sART, "Stochastic ART Reconstruction");
