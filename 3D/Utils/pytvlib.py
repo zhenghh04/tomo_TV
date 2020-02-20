@@ -2,6 +2,7 @@ from skimage import io
 import scipy.ndimage
 import numpy as np
 import time
+from tqdm import tqdm
 
 def tv_derivative(recon):
     r = np.lib.pad(recon, ((1, 1), (1, 1), (1, 1)), 'edge')
@@ -94,7 +95,7 @@ def parallelRay(Nside, angles):
     vals = np.zeros((2 * Nside * Nproj * Nray), dtype=np.float32)
     idxend = 0
 
-    for i in range(0, Nproj): # Loop over projection angles
+    for i in tqdm(range(0, Nproj)): # Loop over projection angles
         ang = angles[i] * np.pi / 180.
         # Points passed by rays at current angles
         xrayRotated = np.cos(ang) * offsets

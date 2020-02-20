@@ -15,7 +15,7 @@ vol_size = '256_'
 file_name = 'au_sto_tiltser.npy'
 
 # Number of Iterations (Main Loop)
-Niter = 100
+Niter = 10
 
 # Number of Iterations (TV Loop)
 ng = 10
@@ -61,7 +61,13 @@ if tomo_obj.get_rank()==0:
 Nslice_loc = tomo_obj.get_Nslice_loc()
 first_slice = tomo_obj.get_first_slice()
 # Generate measurement matrix
-A = parallelRay(Nray, tiltAngles)
+#A = parallelRay(Nray, tiltAngles)
+t0 = time.time()
+A = np.load("Measurement_Matrices/%s%s_measurement.npy"%(vol_size, file_name))
+t1 = time.time()
+if (tomo_obj.get_rank()==0):
+    print("I/O time: %s" %(t1 - t0))
+exit()
 tomo_obj.load_A(A)
 A = None
 tomo_obj.rowInnerProduct()
