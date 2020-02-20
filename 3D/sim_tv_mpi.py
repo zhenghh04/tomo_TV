@@ -10,12 +10,21 @@ import numpy as np
 import mpi_ctvlib 
 import time
 ########################################
+import argparse
+import h5py 
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
 
-vol_size = '256_'
-file_name = 'au_sto_tiltser.npy'
+parser = argparse.ArgumentParser(description="Input for dynamic compressed sensing")
+parser.add_argument("--niter", '-n', default=10, type=int, help='Number of iterations')
+parser.add_argument("--data", '-d', default='Tilt_Series/256_au_sto.h5', type=str, help='Tilt data')
+parser.add_argument("--measurement_matrix", '-m', default=None, type=str, help='Measurement Matrix')
+parser.add_argument("--output", '-o', default="output.h5", help='output')
+parser.add_argument("--noise", store_action='true', help='Whether to put noise or not')
+args = parser.parse_args()
 
 # Number of Iterations (Main Loop)
-Niter = 10
+Niter = args.niter
 
 # Number of Iterations (TV Loop)
 ng = 10
@@ -46,41 +55,45 @@ save_recon = 1           # Save final Reconstruction.
 #rank = comm.Get_rank()
 
 #Read Image. (MPI_IO)
-(file_name, original_volume) = load_data(vol_size,file_name)
-file_name = 'au_sto'
+h5 = h5py.File(args.data, 'r')
+original_volume = h5['tiltSeries']
+tiltAngles = h5['tiltAngles']
 (Nslice, Nray, _) = original_volume.shape
-
 # Generate Tilt Angles.
-tiltAngles = np.load('Tilt_Series/'+ file_name +'_tiltAngles.npy', allow_pickle=True)
 Nproj = tiltAngles.shape[0]
-
 # Initialize C++ Object.. 
 tomo_obj = mpi_ctvlib.mpi_ctvlib(Nslice, Nray, Nproj)
+
+if args.measurement_matrix==None:
+    if tomo_obj.get_rank()==0:
+        print("Generating measurement matrix")
+    A = parallelRay(Nray, tiltAngles)
+else:
+    if tomo_obj.get_rank()==0:
+        print("reading measurement matrix from %s" %args.measurement_matrix)
+    h5a = h5py.File(args.measurement_matrix, 'r')
+    d = h5a["matrix"]
+    A = np.zeros(d.shape)
+    x, y = d.shape
+    A = d[:x, :y]
+    h5a.close()
 if tomo_obj.get_rank()==0:
     print("Number of process: %d "%tomo_obj.get_nproc())
 Nslice_loc = tomo_obj.get_Nslice_loc()
 first_slice = tomo_obj.get_first_slice()
 # Generate measurement matrix
-#A = parallelRay(Nray, tiltAngles)
-t0 = time.time()
-A = np.load("Measurement_Matrices/%s%s_measurement.npy"%(vol_size, file_name))
-t1 = time.time()
-if (tomo_obj.get_rank()==0):
-    print("I/O time: %s" %(t1 - t0))
-exit()
 tomo_obj.load_A(A)
 A = None
 tomo_obj.rowInnerProduct()
 if tomo_obj.get_rank()==0:
     print('Measurement Matrix is Constructed!')
-
-# If creating simulation with noise, set background value to 1.
-if noise:
-    original_volume[original_volume == 0] = 1
-
 # Load Volume and Collect Projections. 
 for s in range(Nslice_loc):
     tomo_obj.setOriginalVolume(original_volume[s+first_slice,:,:], s)
+# If creating simulation with noise, set background value to 1.
+if noise:
+    tomo_obj.set_background(1.0)
+#   original_volume[original_volume == 0] = 1
 tomo_obj.create_projections()
 
 # Apply poisson noise to volume.
@@ -151,23 +164,35 @@ for i in range(Niter):
         print("rmse: %s" %rmse_vec[i])
 
     #Save all the results to single matrix.
+parallel_hdf5 = True
+try:
+    f = h5py.File(args.output, 'w', driver='mpio', comm=comm)
+except:
+    parallel_hdf5 = False
+    f = h5py.File(args.output, 'w', comm=comm)
 
 if tomo_obj.get_rank() == 0:
     results = np.array([dd_vec, eps, tv_vec, tv0, rmse_vec, time_vec])
     os.makedirs('Results/'+ file_name +'_MPI/', exist_ok=True)
     np.save('Results/' + file_name + '_MPI/results.npy', results)
+    f['rmse'] = rmse_vec
+    f['tv'] = tv_vec
+    f['time'] = time_vec
+    f['dd'] = dd_vec
     print("rmse_vec: ", rmse_vec)
     print("tv_vec: ", tv_vec)
     print("time_vec: ", time_vec)
     print("dd_vec: ", dd_vec)
     
 #Get and save the final reconstruction.
-tomo_obj.gather_recon()
-if save_recon and tomo_obj.get_rank()==0: 
-    recon = np.zeros([Nslice, Nray, Nray], dtype=np.float32, order='F')
-    #Use mpi4py to do MPI_Gatherv
-    for s in range(Nslice):
-        # recon_loc[s+first_slice,:,:] = tomo_obj.getRecon(s)
-        recon[s,:,:] = tomo_obj.getRecon(s)
-    np.save('Results/TV_'+ file_name + '_recon.npy', recon)
+if parallel_hdf5 == False:
+    tomo_obj.gather_recon()
+    if save_recon and tomo_obj.get_rank()==0: 
+        recon = np.zeros([Nslice, Nray, Nray], dtype=np.float32, order='F')
+        #Use mpi4py to do MPI_Gatherv
+        for s in range(Nslice):
+            # recon_loc[s+first_slice,:,:] = tomo_obj.getRecon(s)
+            recon[s,:,:] = tomo_obj.getRecon(s)
+        f.create_dataset("recon", data=recon)
+        f.close()
 tomo_obj.mpi_finalize()

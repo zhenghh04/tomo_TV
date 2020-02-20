@@ -295,7 +295,17 @@ void mpi_ctvlib::positivity()
     #pragma omp parallel for
     for(int i=0; i<Nslice_loc; i++)
     {
-        recon[i] = (recon[i].array() < 0).select(0, recon[i]);
+      recon[i] = (recon[i].array() < 0).select(0, recon[i]);
+    }
+}
+
+// Set Background Value
+void mpi_ctvlib::set_background(float b) 
+{
+    #pragma omp parallel for
+    for(int i=0; i<Nslice_loc; i++)
+    {
+      recon[i] = (recon[i].array() == 0).select(b, recon[i]);
     }
 }
 
@@ -627,6 +637,7 @@ PYBIND11_MODULE(mpi_ctvlib, m)
     mpi_ctvlib.def("SIRT", &mpi_ctvlib::SIRT, "SIRT Reconstruction");
     mpi_ctvlib.def("rowInnerProduct", &mpi_ctvlib::normalization, "Calculate the Row Inner Product for Measurement Matrix");
     mpi_ctvlib.def("positivity", &mpi_ctvlib::positivity, "Remove Negative Elements");
+    mpi_ctvlib.def("set_background", &mpi_ctvlib::set_background, "Set background to be certain value");
     mpi_ctvlib.def("forwardProjection", &mpi_ctvlib::forwardProjection, "Forward Projection");
     mpi_ctvlib.def("load_A", &mpi_ctvlib::loadA, "Load Measurement Matrix Created By Python");
     mpi_ctvlib.def("copy_recon", &mpi_ctvlib::copy_recon, "Copy the reconstruction");

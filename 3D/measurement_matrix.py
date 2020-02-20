@@ -10,13 +10,15 @@ sys.path.append('./Utils')
 from pytvlib import parallelRay, timer, load_data
 #from mpi4py import MPI
 import numpy as np
+import h5py
 import time
 ########################################
 import argparse
 parser = argparse.ArgumentParser(description='Process some integers.')
-parser.add_argument("-a", "--tiltAngles", default="Tilt_Series/au_sto_tileAngles.npy", type=str)
+parser.add_argument("-a", "--tiltAngles", default="Tilt_Series/au_sto_tiltAngles.npy", type=str)
 parser.add_argument("-s", "--tiltSeries", default='Tilt_Series/256_au_sto_tiltser.npy', type=str)
 parser.add_argument("-o", "--output", default='Measurement_Matrices/output.npy', type=str)
+parser.add_argument("--hdf5", default=None, type=str)
 args = parser.parse_args()
 args.tiltSeries = args.tiltSeries.split('/')[1]
 #args.tiltAngles = args.tiltAngles.split('/')[1]
@@ -43,4 +45,18 @@ A = parallelRay(Nray, tiltAngles)
 t1 = time.time()
 print("* Total time spent: %s seconds" %(t1 - t0))
 np.save(args.output, A)
-print("* Result is saved to ", args.output)
+
+if (args.hdf5==None):
+    sub = len(args.output.split('.')[-1])
+    args.hdf5 = args.output[:-sub]+"h5"
+x, y = A.shape
+#print("Size of A %s GB" %(x*y*sizeof(float)/1024/1024/1024))
+h5=h5py.File(args.hdf5, 'w')
+dset = h5.create_dataset("matrix", A.shape, dtype=np.float32, data=A)
+dset.attrs["Nslice"] = Nslice
+dset.attrs["Nray"] = Nray
+dset.attrs["Vol"] = int(vol_size[:-1])
+dset.attrs["Nproj"] = Nproj
+dset.attrs["system"] = file_name
+h5.close()
+print("* Result is saved to %s and %s"%(args.output, args.hdf5))
