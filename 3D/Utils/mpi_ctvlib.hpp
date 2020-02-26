@@ -24,10 +24,11 @@ public:
   Mat *recon, *temp_recon, *tv_recon, *original_volume, *recon_gathered;
   //    Mat& left_slice, right_slice; //I don't need this any more
   SpMat A;
-  int Nrow, Ncol, Nslice, Nslice_loc, Ny, Nz, nproc, rank, size;
+  unsigned int Nrow, Ncol, Nslice, Nslice_loc, Ny, Nz;
+  int nproc, rank, size;
   Eigen::VectorXf innerProduct;
   Mat b, g;
-  int first_slice, last_slice; 
+  unsigned int first_slice, last_slice; 
   // Initializes Measurement Matrix. 
 	mpi_ctvlib(int Nslice, int Nray, int Nproj);
     int get_Nslice_loc();
