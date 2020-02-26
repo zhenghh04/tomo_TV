@@ -26,30 +26,22 @@ typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Ma
 typedef Eigen::SparseMatrix<float, Eigen::RowMajor> SpMat;
 
 void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
-
   hid_t fd = H5Fopen(fname, H5F_ACC_RDONLY, H5P_DEFAULT);
   hid_t dset = H5Dopen(fd, "/matrix", H5P_DEFAULT);
-  //  hid_t ta = H5Dopen(fd, "/tiltAngles", H5P_DEFAULT);
-  // get dimsion of the dataset 
   hid_t space_s = H5Dget_space(dset);
   hsize_t gdims[2];
   int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
-  // get the local dimsion for parallel read
+
   if (rank==0) {
-    cout << "reading measurement matrix from " << fname << endl; 
-    cout << "Dim: " << gdims[0] << "x" << gdims[1] << endl; 
+    cout << "* reading measurement matrix from " << fname << endl; 
+    cout << "* Dim: " << gdims[0] << "x" << gdims[1] << endl; 
   }
-  
-  float *Mat = new float(gdims[0]*gdims[1]);
-  if (rank==0) 
-    H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, Mat);
-  MPI_Barrier(MPI_COMM_WORLD);
-  cout << "read done" << endl; 
+  float *Mat = new float[gdims[0]*gdims[1]];
+  H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, Mat);
   H5Dclose(dset);
   H5Fclose(fd);
   for (int i=0; i < gdims[1]; i++)
   {
-    if (rank==0) cout << Mat[i] << " " << Mat[gdims[1]+i] << endl; 
     A.coeffRef(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
   }
   A.makeCompressed();
@@ -60,14 +52,13 @@ void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
 void mpi_ctvlib::loadVolume(char *fname) {
   MPI_Comm_size(MPI_COMM_WORLD, &nproc); 
   MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
-  cout << " Reading data from " << fname << endl; 
+  if (rank==0) cout << "* Reading data from " << fname << endl; 
   hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
   MPI_Info info = MPI_INFO_NULL; 
   H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, info); 
   hid_t fd = H5Fopen(fname, H5F_ACC_RDONLY, plist_id);
   hid_t dset = H5Dopen(fd, "/tiltSeries", H5P_DEFAULT);
-  //  hid_t ta = H5Dopen(fd, "/tiltAngles", H5P_DEFAULT);
-  // get dimsion of the dataset 
+
   hid_t space_s = H5Dget_space(dset);
   hsize_t gdims[3];
   int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
@@ -92,9 +83,9 @@ void mpi_ctvlib::loadVolume(char *fname) {
   H5Pset_dxpl_mpio(dxf_id, H5FD_MPIO_COLLECTIVE);
   float *tiltSeries = new float[Nslice_loc*Nray*Nproj]; 
   if (rank==0) {
-    cout << "Nslice: " << Nslice << endl;  
-    cout << "Nray: " << Nray << endl;  
-    cout << "Nproj: " << Nproj << endl;  
+    cout << "* Nslice: " << Nslice << endl;  
+    cout << "* Nray: " << Nray << endl;  
+    cout << "* Nproj: " << Nproj << endl;  
   }
   H5Dread(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, tiltSeries); 
   H5Pclose(plist_id);
@@ -106,7 +97,7 @@ void mpi_ctvlib::loadVolume(char *fname) {
   init(Nslice, Nray, Nproj);
 
   for(int i=0; i<Nslice_loc; i++) {
-    memcpy(&original_volume[i](0, 0), &tiltSeries[i*Nray*Nproj], Nray*Nproj);
+    memcpy(&original_volume[i](0, 0), &tiltSeries[i*Nray*Nproj], Nray*Nproj*sizeof(float));
   }
 } 
 
@@ -271,11 +262,11 @@ void mpi_ctvlib::updateLeftSlice(Mat *vol) {
     if (nproc>1) {
 #ifdef DEBUG
       cout << "rank" << rank << "sending the message" << endl; 
-#endif 
+#endif
       MPI_Send(&vol[Nslice_loc-1](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD);
 #ifdef DEBUG
       cout << "rank" << rank << "sending the message - done" << endl; 
-#endif 
+#endif
       MPI_Recv(&vol[Nslice_loc+1](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, &status);
 #ifdef DEBUG
       cout << "message received" << endl; 
@@ -297,7 +288,7 @@ void mpi_ctvlib::updateRightSlice(Mat *vol) {
       MPI_Send(&vol[0](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD);
 #ifdef DEBUG
       cout << "rank" << rank << "sending the message - done" << endl; 
-#endif 
+#endif
       MPI_Recv(&vol[Nslice_loc](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, &status);
 #ifdef DEBUG
       cout << "message received" << endl; 
@@ -410,7 +401,10 @@ void mpi_ctvlib::normalization()
 // Create Local Copy of Reconstruction. 
 void mpi_ctvlib::copy_recon()
 {
-    memcpy(temp_recon, recon, sizeof(recon));
+  #pragma omp parallel for 
+  for (int i=0; i<Nslice_loc; i++)
+    memcpy(&temp_recon[i](0,0), &recon[i](0, 0), Ny*Nz*sizeof(float));
+  //memcpy(temp_recon, recon, sizeof(recon));
 }
 
 // Measure the 2 norm between temporary and current reconstruction.
@@ -674,16 +668,16 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
     float *buf = new float [Nslice_loc*Ny*Nz];
 #pragma omp parallel for
     for (int i=0; i<Nslice_loc; i++)
-      memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz);
+      memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz*sizeof(float));
     cout << "buf0:" << buf[0] << endl; 
 
     H5Dwrite(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, buf); 
     delete [] buf; 
     H5Pclose(plist_id); 
     H5Pclose(dxf_id);
-    H5Pclose(fspace); 
-    H5Pclose(mspace); 
-    H5Pclose(dset);
+    H5Sclose(fspace); 
+    H5Sclose(mspace); 
+    H5Dclose(dset);
     H5Fclose(fd);
 
   } else {
@@ -692,7 +686,7 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
     float *buf = new float [Nslice_loc*Ny*Nz];
 #pragma omp parallel for
     for (int i=0; i<Nslice_loc; i++)
-      memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz);
+      memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz*sizeof(float));
     
     MPI_File_write_at(fh, sizeof(float)*first_slice*Ny*Nz, buf, Nslice_loc*Ny*Nz, MPI_FLOAT, MPI_STATUS_IGNORE);
     MPI_File_close(&fh);
@@ -700,44 +694,6 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
     if (rank==0) cout << "write done " << endl; 
     delete [] buf; 
   }
-}
-
-void mpi_ctvlib::gather_recon() 
-{
-  int* nloc = new int[nproc];
-  int* disp = new int[nproc];
-  for(int i=0; i<nproc; i++) {
-    nloc[i] = int(Nslice/nproc);
-    disp[i] = int(Nslice/nproc)*i;
-  } 
-  for(int i=0; i<Nslice%nproc; i++) {
-    nloc[i]++; 
-    disp[i] += i;
-  }
-  for(int i=0; i<nproc; i++) {
-    nloc[i] = nloc[i]*Ny*Nz; 
-    disp[i] = disp[i]*Ny*Nz;
-  }
-  float *recv;
-
-  recon_gathered = new Mat[Nslice];
-  for(int i=0; i<Nslice; i++) 
-    recon_gathered[i] = Mat::Zero(Ny, Nz);
-  
-  recv = &recon_gathered[0](0, 0);
-  float *buf = new float [Nslice_loc*Ny*Nz];
-#pragma omp parallel for
-  for (int i=0; i<Nslice_loc; i++)
-    memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz);
-  
-  if (nproc==1) 
-    for(int i=0; i<Nslice; i++) 
-      recon_gathered[i] = recon[i];
-  else
-    MPI_Gatherv(&recon[0](0, 0), Nslice_loc*Ny*Nz, MPI_FLOAT,
-		recv, nloc, disp, MPI_FLOAT,
-		0, MPI_COMM_WORLD);
-  delete nloc, disp; 
 }
 
 Mat mpi_ctvlib::get_projections()
