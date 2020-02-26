@@ -6,11 +6,9 @@
 //  Copyright © 2019 Jonathan Schwartz. All rights reserved.
 //
 
-#include "mpi_ctvlib.hpp"
+#include "mpi_ctvlib.h"
 #include <Eigen/SparseCore>
 #include <Eigen/Core>
-#include <pybind11/pybind11.h>
-#include <pybind11/eigen.h>
 #include <iostream>
 #include <cmath>
 #include <random>
@@ -22,12 +20,97 @@
 
 using namespace Eigen;
 using namespace std;
-namespace py = pybind11;
+
 
 typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat;
 typedef Eigen::SparseMatrix<float, Eigen::RowMajor> SpMat;
 
-mpi_ctvlib::mpi_ctvlib(int Ns, int Nray, int Nproj)
+void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
+
+  hid_t fd = H5Fopen(fname, H5F_ACC_RDONLY, H5P_DEFAULT);
+  hid_t dset = H5Dopen(fd, "/matrix", H5P_DEFAULT);
+  //  hid_t ta = H5Dopen(fd, "/tiltAngles", H5P_DEFAULT);
+  // get dimsion of the dataset 
+  hid_t space_s = H5Dget_space(dset);
+  hsize_t gdims[2];
+  int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
+  // get the local dimsion for parallel read
+  if (rank==0) {
+    cout << "reading measurement matrix from " << fname << endl; 
+    cout << "Dim: " << gdims[0] << "x" << gdims[1] << endl; 
+  }
+  
+  float *Mat = new float(gdims[0]*gdims[1]);
+  if (rank==0) 
+    H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, Mat);
+  MPI_Barrier(MPI_COMM_WORLD);
+  cout << "read done" << endl; 
+  H5Dclose(dset);
+  H5Fclose(fd);
+  for (int i=0; i < gdims[1]; i++)
+  {
+    if (rank==0) cout << Mat[i] << " " << Mat[gdims[1]+i] << endl; 
+    A.coeffRef(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
+  }
+  A.makeCompressed();
+  delete [] Mat; 
+} 
+
+
+void mpi_ctvlib::loadVolume(char *fname) {
+  MPI_Comm_size(MPI_COMM_WORLD, &nproc); 
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
+  cout << " Reading data from " << fname << endl; 
+  hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
+  MPI_Info info = MPI_INFO_NULL; 
+  H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, info); 
+  hid_t fd = H5Fopen(fname, H5F_ACC_RDONLY, plist_id);
+  hid_t dset = H5Dopen(fd, "/tiltSeries", H5P_DEFAULT);
+  //  hid_t ta = H5Dopen(fd, "/tiltAngles", H5P_DEFAULT);
+  // get dimsion of the dataset 
+  hid_t space_s = H5Dget_space(dset);
+  hsize_t gdims[3];
+  int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
+  unsigned int Nslice = gdims[0]; 
+  unsigned int Nray = gdims[1]; 
+  unsigned int Nproj = gdims[2];
+  // get the local dimsion for parallel read
+  unsigned int Nslice_loc = int(Nslice/nproc);
+  unsigned int first_slice = rank*Nslice_loc;
+  if (rank < Nslice%nproc){
+    Nslice_loc++;
+    first_slice += rank%nproc; }
+  int last_slice = first_slice + Nslice_loc - 1; 
+
+  hsize_t ldims[3] = {Nslice_loc, Nray, Nproj};
+  hid_t fspace = H5Screate_simple(3, gdims, NULL);
+  hid_t mspace = H5Screate_simple(3, ldims, NULL);
+  hsize_t offset[3] = {first_slice, 0, 0}; 
+  hsize_t count [3] = {1, 1, 1};
+  H5Sselect_hyperslab(fspace, H5S_SELECT_SET, offset, NULL, ldims, count); 
+  hid_t dxf_id = H5Pcreate(H5P_DATASET_XFER);
+  H5Pset_dxpl_mpio(dxf_id, H5FD_MPIO_COLLECTIVE);
+  float *tiltSeries = new float[Nslice_loc*Nray*Nproj]; 
+  if (rank==0) {
+    cout << "Nslice: " << Nslice << endl;  
+    cout << "Nray: " << Nray << endl;  
+    cout << "Nproj: " << Nproj << endl;  
+  }
+  H5Dread(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, tiltSeries); 
+  H5Pclose(plist_id);
+  H5Sclose(fspace);
+  H5Sclose(mspace);
+  H5Dclose(dset);
+  H5Pclose(dxf_id);
+  H5Fclose(fd);
+  init(Nslice, Nray, Nproj);
+
+  for(int i=0; i<Nslice_loc; i++) {
+    memcpy(&original_volume[i](0, 0), &tiltSeries[i*Nray*Nproj], Nray*Nproj);
+  }
+} 
+
+void mpi_ctvlib::init(int Ns, int Nray, int Nproj)
 {
     //Intialize all the Member variables.
     Nslice = Ns;
@@ -37,8 +120,7 @@ mpi_ctvlib::mpi_ctvlib(int Ns, int Nray, int Nproj)
     Ncol = Ny*Nz;
     A.resize(Nrow,Ncol);
     innerProduct.resize(Nrow);
-    
-    MPI_Init(NULL,NULL);
+
     MPI_Comm_size(MPI_COMM_WORLD, &nproc);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
@@ -191,6 +273,9 @@ void mpi_ctvlib::updateLeftSlice(Mat *vol) {
       cout << "rank" << rank << "sending the message" << endl; 
 #endif 
       MPI_Send(&vol[Nslice_loc-1](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD);
+#ifdef DEBUG
+      cout << "rank" << rank << "sending the message - done" << endl; 
+#endif 
       MPI_Recv(&vol[Nslice_loc+1](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, &status);
 #ifdef DEBUG
       cout << "message received" << endl; 
@@ -210,6 +295,9 @@ void mpi_ctvlib::updateRightSlice(Mat *vol) {
       cout << "rank" << rank << "sending the message" << endl; 
 #endif
       MPI_Send(&vol[0](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD);
+#ifdef DEBUG
+      cout << "rank" << rank << "sending the message - done" << endl; 
+#endif 
       MPI_Recv(&vol[Nslice_loc](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, &status);
 #ifdef DEBUG
       cout << "message received" << endl; 
@@ -569,7 +657,6 @@ Mat mpi_ctvlib::getRecon(int s)
 
 void mpi_ctvlib::save_recon(char *filename, int type=0) {
   if (type==0) {
-    if (rank==0) cout << "HDF5 write " << endl; 
     hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
     MPI_Info info = MPI_INFO_NULL; 
     H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, info); 
@@ -584,20 +671,34 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
     hid_t mspace = H5Screate_simple(3, ldims, NULL); 
     hid_t dset = H5Dcreate(fd, "recon", H5T_NATIVE_FLOAT, fspace, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT); 
     H5Sselect_hyperslab(fspace, H5S_SELECT_SET, offset, NULL, ldims, count); 
-    H5Dwrite(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, &recon[0](0, 0)); 
+    float *buf = new float [Nslice_loc*Ny*Nz];
+#pragma omp parallel for
+    for (int i=0; i<Nslice_loc; i++)
+      memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz);
+    cout << "buf0:" << buf[0] << endl; 
+
+    H5Dwrite(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, buf); 
+    delete [] buf; 
     H5Pclose(plist_id); 
     H5Pclose(dxf_id);
     H5Pclose(fspace); 
     H5Pclose(mspace); 
     H5Pclose(dset);
     H5Fclose(fd);
+
   } else {
-    if (rank==0) cout << "MPIO write " << endl; 
     MPI_File fh; 
-    int rc= MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_RDONLY | MPI_MODE_CREATE,MPI_INFO_NULL, &fh); 
-    MPI_File_write_at(fh, sizeof(float)*first_slice*Ny*Nz, &recon[0](0, 0), Nslice_loc*Ny*Nz, MPI_FLOAT, MPI_STATUS_IGNORE);
+    int rc= MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &fh); 
+    float *buf = new float [Nslice_loc*Ny*Nz];
+#pragma omp parallel for
+    for (int i=0; i<Nslice_loc; i++)
+      memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz);
+    
+    MPI_File_write_at(fh, sizeof(float)*first_slice*Ny*Nz, buf, Nslice_loc*Ny*Nz, MPI_FLOAT, MPI_STATUS_IGNORE);
     MPI_File_close(&fh);
     MPI_File_sync(fh);
+    if (rank==0) cout << "write done " << endl; 
+    delete [] buf; 
   }
 }
 
@@ -624,6 +725,11 @@ void mpi_ctvlib::gather_recon()
     recon_gathered[i] = Mat::Zero(Ny, Nz);
   
   recv = &recon_gathered[0](0, 0);
+  float *buf = new float [Nslice_loc*Ny*Nz];
+#pragma omp parallel for
+  for (int i=0; i<Nslice_loc; i++)
+    memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz);
+  
   if (nproc==1) 
     for(int i=0; i<Nslice; i++) 
       recon_gathered[i] = recon[i];
@@ -646,45 +752,4 @@ void mpi_ctvlib::restart_recon()
     {
         recon[s] = Mat::Zero(Ny,Ny);
     }
-}
-int mpi_ctvlib::mpi_finalize() {
-  return MPI_Finalize();
-}
-//Python functions for ctvlib module. 
-PYBIND11_MODULE(mpi_ctvlib, m)
-{
-    m.doc() = "C++ Scripts for TV-Tomography Reconstructions with OpenMPI Support";
-    py::class_<mpi_ctvlib> mpi_ctvlib(m, "mpi_ctvlib");
-    mpi_ctvlib.def(py::init<int,int, int>());
-    mpi_ctvlib.def("get_Nslice_loc", &mpi_ctvlib::get_Nslice_loc, "Get the size of local volume");
-    mpi_ctvlib.def("get_first_slice", &mpi_ctvlib::get_first_slice, "Get first slice location");
-    mpi_ctvlib.def("get_rank", &mpi_ctvlib::get_rank, "Get rank id");
-    mpi_ctvlib.def("get_nproc", &mpi_ctvlib::get_nproc, "Get number of processor in current communicator");
-    mpi_ctvlib.def("setTiltSeries", &mpi_ctvlib::setTiltSeries, "Pass the Projections to C++ Object");
-    mpi_ctvlib.def("setOriginalVolume", &mpi_ctvlib::setOriginalVolume, "Pass the Volume to C++ Object");
-    mpi_ctvlib.def("create_projections", &mpi_ctvlib::create_projections, "Create Projections from Volume");
-    mpi_ctvlib.def("getRecon", &mpi_ctvlib::getRecon, "Return the Reconstruction to Python");
-    mpi_ctvlib.def("gather_recon", &mpi_ctvlib::gather_recon, "gather reconstruction matrix");
-    mpi_ctvlib.def("save_recon", &mpi_ctvlib::save_recon, "save reconstruction matrix");
-    mpi_ctvlib.def("mpi_finalize", &mpi_ctvlib::mpi_finalize, "Finalize the communicator");
-    mpi_ctvlib.def("ART", &mpi_ctvlib::ART, "ART Reconstruction");
-    mpi_ctvlib.def("sART", &mpi_ctvlib::sART, "Stochastic ART Reconstruction");
-    mpi_ctvlib.def("SIRT", &mpi_ctvlib::SIRT, "SIRT Reconstruction");
-    mpi_ctvlib.def("rowInnerProduct", &mpi_ctvlib::normalization, "Calculate the Row Inner Product for Measurement Matrix");
-    mpi_ctvlib.def("positivity", &mpi_ctvlib::positivity, "Remove Negative Elements");
-    mpi_ctvlib.def("set_background", &mpi_ctvlib::set_background, "Set background to be certain value");
-    mpi_ctvlib.def("forwardProjection", &mpi_ctvlib::forwardProjection, "Forward Projection");
-    mpi_ctvlib.def("load_A", &mpi_ctvlib::loadA, "Load Measurement Matrix Created By Python");
-    mpi_ctvlib.def("copy_recon", &mpi_ctvlib::copy_recon, "Copy the reconstruction");
-    mpi_ctvlib.def("matrix_2norm", &mpi_ctvlib::matrix_2norm, "Calculate L2-Norm of Reconstruction");
-    mpi_ctvlib.def("vector_2norm", &mpi_ctvlib::vector_2norm, "Calculate L2-Norm of Projection (aka Vectors)");
-    mpi_ctvlib.def("dyn_vector_2norm", &mpi_ctvlib::dyn_vector_2norm, "Calculate L2-Norm of Partially Sampled Projections (aka Vectors)");
-    mpi_ctvlib.def("rmse", &mpi_ctvlib::rmse, "Calculate reconstruction's RMSE");
-    mpi_ctvlib.def("tv", &mpi_ctvlib::tv_3D, "Measure 3D TV");
-    mpi_ctvlib.def("original_tv", &mpi_ctvlib::original_tv_3D, "Measure original TV");
-    mpi_ctvlib.def("tv_gd", &mpi_ctvlib::tv_gd_3D, "3D TV Gradient Descent");
-    mpi_ctvlib.def("get_projections", &mpi_ctvlib::get_projections, "Return the projection matrix to python");
-    mpi_ctvlib.def("poissonNoise", &mpi_ctvlib::poissonNoise, "Add Poisson Noise to Projections");
-    mpi_ctvlib.def("lip", &mpi_ctvlib::lipschits, "Add Poisson Noise to Projections");
-    mpi_ctvlib.def("restart_recon", &mpi_ctvlib::restart_recon, "Set all the Slices Equal to Zero");
 }

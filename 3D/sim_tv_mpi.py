@@ -3,11 +3,10 @@
 # and to reconstruct large volume sizes (>1000^3) with Distributed Memory (OpenMPI)
 
 import sys, os
-sys.path.append('./Utils')
-from pytvlib import parallelRay, timer, load_data
+from Utils.pytvlib import parallelRay, timer, load_data
 #from mpi4py import MPI
 import numpy as np
-import mpi_ctvlib 
+import Utils.mpi_ctvlib  as mpi_ctvlib
 import time
 ########################################
 import argparse
@@ -19,6 +18,7 @@ parser.add_argument("--data", '-d', default='Tilt_Series/256_au_sto.h5', type=st
 parser.add_argument("--measurement_matrix", '-m', default=None, type=str, help='Measurement Matrix')
 parser.add_argument("--output", '-o', default="output.h5", help='output')
 parser.add_argument("--noise", action='store_true', help='Whether to put noise or not')
+
 args = parser.parse_args()
 
 # Number of Iterations (Main Loop)
@@ -62,13 +62,13 @@ tiltAngles = fv['tiltAngles']
 Nproj = tiltAngles.shape[0]
 # Initialize C++ Object.. 
 tomo_obj = mpi_ctvlib.mpi_ctvlib(Nslice, Nray, Nproj)
-
+verbose = tomo_obj.get_rank()==0
 if args.measurement_matrix==None:
     if tomo_obj.get_rank()==0:
         print("Generating measurement matrix")
     A = parallelRay(Nray, tiltAngles)
 else:
-    if tomo_obj.get_rank()==0:
+    if verbose:
         print("reading measurement matrix from %s" %args.measurement_matrix)
     h5a = h5py.File(args.measurement_matrix, 'r')
     d = h5a["matrix"]
@@ -82,6 +82,8 @@ Nslice_loc = tomo_obj.get_Nslice_loc()
 first_slice = tomo_obj.get_first_slice()
 
 # Generate measurement matrix
+if verbose:
+    print("loading measurement matrix")
 tomo_obj.load_A(A)
 A = None
 tomo_obj.rowInnerProduct()
@@ -100,6 +102,8 @@ if tomo_obj.get_rank()==0:
 if noise:
     tomo_obj.set_background(1.0)
 #   original_volume[original_volume == 0] = 1
+if verbose:
+    print("create projection")
 tomo_obj.create_projections()
 
 # Apply poisson noise to volume.
@@ -107,6 +111,8 @@ if noise:
     tomo_obj.poissonNoise(SNR)
 
 #Measure Volume's Original TV
+if verbose:
+    print("compute original tv")
 tv0 = tomo_obj.original_tv()
 
 dd_vec, tv_vec = np.zeros(Niter), np.zeros(Niter)
@@ -117,11 +123,14 @@ counter = 1
 t0 = time.time()
 
 #Main Loop
+if verbose:
+    print("main loop")
 from tqdm import tqdm
 for i in tqdm(range(Niter)): 
     if ( i % 1 ==0 and tomo_obj.get_rank()==0):
         print('Iteration No.: ' + str(i+1) +'/'+str(Niter))
-
+    if (verbose):
+        print("iter %s"%i)
     tomo_obj.copy_recon()
 
     #ART Reconstruction. 
@@ -167,12 +176,11 @@ for i in tqdm(range(Niter)):
     counter += 1
     time_vec[i] = time.time() - t0
 
-    if (tomo_obj.get_rank()==0):
+    if verbose:
         print("rmse: %s" %rmse_vec[i])
 
     #Save all the results to single matrix.
-
-tomo_obj.save_recon("mpio.dat", 1)
+tomo_obj.save_recon(args.output, 0)
 if tomo_obj.get_rank() == 0:
     f = h5py.File(args.output, 'w')
     results = np.array([dd_vec, eps, tv_vec, tv0, rmse_vec, time_vec])
