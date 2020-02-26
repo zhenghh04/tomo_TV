@@ -2,11 +2,12 @@
 #include "mpi.h"
 #include "hdf5.h"
 #include <iostream>
-
+#include "timing.h"
 using namespace std; 
 
 int main(int argc, char **argv) {
   // Number of iteration
+  Timing tt;
   int niter = 10;
   // iteration in the TV loop
   int ng = 10;
@@ -76,7 +77,9 @@ int main(int argc, char **argv) {
   for (int i = 0; i<niter; i++) {
     if (rank==0) cout << "iter " << i << endl; 
     tomo_obj.copy_recon();
+    tt.start_clock("sART");
     tomo_obj.sART(beta, -1); 
+    tt.stop_clock("sART");
     tomo_obj.positivity();
     beta *= beta_red; 
     tomo_obj.forwardProjection(-1);
@@ -87,11 +90,15 @@ int main(int argc, char **argv) {
       dp = tomo_obj.matrix_2norm();
     }
     float dd = tomo_obj.vector_2norm();
+    tt.start_clock("tv_3D");
     float tv = tomo_obj.tv_3D();
+    tt.stop_clock("tv_3D");
     float rmse = tomo_obj.rmse();
     tomo_obj.copy_recon();
     // TV minimization
+    tt.start_clock("tv_gd_3D");
     tomo_obj.tv_gd_3D(ng, dPOCS);
+    tt.stop_clock("tv_gd_3D");
 
     float dg = tomo_obj.matrix_2norm();
     if ((dg > dp * r_max) && (dd > eps))
@@ -103,6 +110,8 @@ int main(int argc, char **argv) {
     }
   }
   tomo_obj.save_recon(output, 0);
+  if (rank==0)
+    tt.PrintTiming();
   MPI_Finalize();
   return 0; 
 }

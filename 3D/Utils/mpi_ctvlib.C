@@ -598,10 +598,10 @@ void mpi_ctvlib::tv_gd_3D(int ng, float dPOCS)
                 int jp = (j+1) % ny;
                 int jm = (j-1+ny) % ny;
                 
-                for (int k = 0; k < ny; k++)
+                for (int k = 0; k < nz; k++)
                 {
-                    int kp = (k+1)%ny;
-                    int km = (k-1+ny)%ny;
+                    int kp = (k+1)%nz;
+                    int km = (k-1+ny)%nz;
                     
                     float v1n = 3.0*recon[i](j, k) - recon[ip](j, k) - recon[i](jp, k) - recon[i](j, kp);
                     float v1d = sqrt(eps + ( recon[i](j, k) - recon[ip](j, k) ) * ( recon[i](j, k) - recon[ip](j, k) )
@@ -669,7 +669,6 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
 #pragma omp parallel for
     for (int i=0; i<Nslice_loc; i++)
       memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz*sizeof(float));
-    cout << "buf0:" << buf[0] << endl; 
 
     H5Dwrite(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, buf); 
     delete [] buf; 
