@@ -5,8 +5,6 @@
 using namespace std; 
 
 int main(int argc, char **argv) {
-  cout << "**Initialized " << endl; 
-  return 0;
   // Number of iteration
   Timing tt;
   int niter = 10;
@@ -32,7 +30,6 @@ int main(int argc, char **argv) {
   char fname[255] = "../Tilt_Series/256_au_sto.h5";
   char measure[255] = "../256_au_sto_measurement.h5";
   char output[255] = "../output.h5";
-  cout << "**Initialized " << endl; 
 
   mpi_ctvlib tomo_obj(&argc, &argv);
   while(i<argc) {
@@ -61,7 +58,7 @@ int main(int argc, char **argv) {
     cout << "* Niter: " << niter << endl; 
   }
 
-  if (verbose==1) cout << "# ==== load volume" << endl; 
+  if (verbose==1) cout << "# ==== load volume ==== " << endl; 
   tomo_obj.loadVolume(fname);
   if (verbose==1) cout << "# ==== load measurement matrix" << endl; 
   tomo_obj.loadMeasurementMatrix(measure);

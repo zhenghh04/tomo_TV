@@ -44,10 +44,11 @@ void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
     dset = H5Dopen(fd, "/matrix", H5P_DEFAULT);
     space_s = H5Dget_space(dset);
     int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
-    cout << "* reading measurement matrix from " << fname << endl; 
+    cout << "* Reading measurement matrix from " << fname << endl; 
     cout << "* Dim: " << gdims[0] << "x" << gdims[1] << endl; 
   }
-  MPI_Bcast(gdims, 2, MPI_LONG_INT, 0, MPI_COMM_WORLD);
+
+  MPI_Bcast(gdims, 2, MPI_UNSIGNED_LONG_LONG, 0, MPI_COMM_WORLD);
   float *Mat = new float[gdims[0]*gdims[1]];
   if (rank==0) {
     H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, Mat);
@@ -57,11 +58,21 @@ void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
   }
   MPI_Bcast(Mat, gdims[0]*gdims[1], MPI_FLOAT, 0, MPI_COMM_WORLD);
   if (rank==0) cout << "* rank 0 broadcasted the matrix to other rank" << endl; 
+  float t1 = MPI_Wtime();
+  int x = Mat[gdims[1]-1];
+
   for (int i=0; i < gdims[1]; i++)
   {
     A.coeffRef(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
   }
+
+  //  for (int k=0; k<A.outerSize(); ++k)
+  //    for (SparseMatrix<float>::InnerIterator it(A,k); it; ++it)
+  //      it.valueRef() = new_val(it.row(), it.col());
+  float t2 = MPI_Wtime();
+  if (rank==0) cout << "* set A coefficient with " << t2 - t1 << " seconds" << endl; 
   A.makeCompressed();
+  if (rank==0) cout << "* A compressed " << endl; 
   delete [] Mat; 
 } 
 
