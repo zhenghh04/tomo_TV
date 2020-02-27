@@ -53,36 +53,40 @@ int main(int argc, char **argv) {
   int rank, nproc; 
   MPI_Comm_rank(MPI_COMM_WORLD, &rank);
   if (rank==0) {
-    cout << "Command Line Inputs" << endl; 
+    cout << "# ===== Command Line Inputs" << endl; 
     cout << "* Data: " << fname << endl;
     cout << "* Measurement: " << measure << endl;
     cout << "* Output: " << output << endl;
     cout << "* Niter: " << niter << endl; 
   }
   mpi_ctvlib tomo_obj;
-  if (rank==0) cout << "load volume" << endl; 
+  if (rank==0) cout << "# ==== load volume" << endl; 
   tomo_obj.loadVolume(fname);
-  if (rank==0) cout << "load measurement matrix" << endl; 
+  if (rank==0) cout << "# ==== load measurement matrix" << endl; 
   tomo_obj.loadMeasurementMatrix(measure);
-  if (rank==0) cout << "normalization" << endl; 
+  if (rank==0) cout << "# ==== normalization" << endl; 
   tomo_obj.normalization();
   if (noise)
     tomo_obj.set_background(1.0);
 
-  if (rank==0) cout << "create projections" << endl; 
+  if (rank==0) cout << "# ==== create projections" << endl; 
   tomo_obj.create_projections();
   if (noise)
     tomo_obj.poissonNoise(SNR);
-  if (rank==0) cout << "original_tv_3D" << endl; 
+
+  if (rank==0) cout << "# ==== original_tv_3D" << endl; 
   tomo_obj.original_tv_3D();
   for (int i = 0; i<niter; i++) {
     if (rank==0) cout << "iter " << i << endl; 
     tomo_obj.copy_recon();
+
     tt.start_clock("sART");
     tomo_obj.sART(beta, -1); 
     tt.stop_clock("sART");
+
     tomo_obj.positivity();
     beta *= beta_red; 
+
     tomo_obj.forwardProjection(-1);
     if (i==0) {
       dPOCS = tomo_obj.matrix_2norm()*alpha; 
@@ -105,9 +109,9 @@ int main(int argc, char **argv) {
     if ((dg > dp * r_max) && (dd > eps))
       dPOCS *= alpha_red;
     if (rank==0) {
-      cout << " - dd: " << dd  << endl;
-      cout << " - rmse: " << rmse  << endl;
-      cout << " - tv: " << tv  << endl; 
+      cout << "  - dd: " << dd  << endl;
+      cout << "  - rmse: " << rmse  << endl;
+      cout << "  - tv: " << tv  << endl; 
     }
   }
   tomo_obj.save_recon(output, 0);

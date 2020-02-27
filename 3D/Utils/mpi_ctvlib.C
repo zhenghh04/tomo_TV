@@ -260,15 +260,9 @@ void mpi_ctvlib::updateLeftSlice(Mat *vol) {
     int tag = 0;
     MPI_Request request; 
     if (nproc>1) {
-#ifdef DEBUG
-      cout << "rank" << rank << "sending the message" << endl; 
-#endif
       MPI_Isend(&vol[Nslice_loc-1](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, &request);
       MPI_Recv(&vol[Nslice_loc+1](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       MPI_Wait(&request, MPI_STATUS_IGNORE);
-#ifdef DEBUG
-      cout << "message received" << endl; 
-#endif
     } else {
       vol[Nslice_loc+1] = vol[Nslice_loc-1];
     }
@@ -277,18 +271,12 @@ void mpi_ctvlib::updateLeftSlice(Mat *vol) {
 
 
 void mpi_ctvlib::updateRightSlice(Mat *vol) {
-    int tag = 0;
+    int tag = 1;
     MPI_Request request; 
     if (nproc>1) {
-#ifdef DEBUG
-      cout << "rank" << rank << "sending the message" << endl; 
-#endif
       MPI_Isend(&vol[0](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, &request);
       MPI_Recv(&vol[Nslice_loc](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
       MPI_Wait(&request, MPI_STATUS_IGNORE);
-#ifdef DEBUG
-      cout << "message received" << endl; 
-#endif
     } else {
       vol[Nslice_loc] = vol[0];
     }
@@ -375,12 +363,12 @@ void mpi_ctvlib::positivity()
 }
 
 // Set Background Value
-void mpi_ctvlib::set_background(float b) 
+void mpi_ctvlib::set_background(float t) 
 {
     #pragma omp parallel for
     for(int i=0; i<Nslice_loc; i++)
     {
-      recon[i] = (recon[i].array() == 0).select(b, recon[i]);
+      recon[i] = (recon[i].array() == 0).select(t, recon[i]);
     }
 }
 
@@ -519,7 +507,7 @@ float mpi_ctvlib::tv_3D()
             int jp = (j+1)%ny;
             for (int k = 0; k < nz; k++)
             {
-                int kp = (k+1)%ny;
+                int kp = (k+1)%nz;
                 tv_recon[i](j,k) = sqrt(eps + ( recon[i](j,k) - recon[ip](j,k) ) * ( recon[i](j,k) - recon[ip](j,k) )
                                         + ( recon[i](j,k) - recon[i](jp,k) ) * ( recon[i](j,k) - recon[i](jp,k) )
                                         + ( recon[i](j,k) - recon[i](j,kp) ) * ( recon[i](j,k) - recon[i](j,kp) ));
@@ -554,10 +542,10 @@ float mpi_ctvlib::original_tv_3D()
             int jp = (j+1)%ny;
             for (int k = 0; k < nz; k++)
             {
-                int kp = (k+1)%ny;
-                tv_recon[i](j,k) = sqrt(eps + pow( original_volume[i](j,k) - original_volume[ip](j,k) , 2)
-                                        + pow( original_volume[i](j,k) - original_volume[i](jp,k) , 2)
-                                        + pow( original_volume[i](j,k) - original_volume[i](j,kp) , 2));
+                int kp = (k+1)%nz;
+                tv_recon[i](j,k) = sqrt(eps + ( original_volume[i](j,k) - original_volume[ip](j,k) ) * ( original_volume[i](j,k) - original_volume[ip](j,k) )
+	+ ( original_volume[i](j,k) - original_volume[i](jp,k) ) * ( original_volume[i](j,k) - original_volume[i](jp,k) )
+	+ ( original_volume[i](j,k) - original_volume[i](j,kp) ) * ( original_volume[i](j,k) - original_volume[i](j,kp) ));
             }
         }
         tv_loc+= tv_recon[i].sum();
@@ -584,42 +572,38 @@ void mpi_ctvlib::tv_gd_3D(int ng, float dPOCS)
     
     for(int g=0; g < ng; g++) {
       tv_norm_loc = 0.0; 
+      for (int i = 0; i < nx; i++) {
+	int ip = i+1;
+	int im = (i-1+nx+2) % (nx+2);
 #pragma omp parallel for reduction(+:tv_norm_loc)
-      for (int i = 0; i < nx; i++)
-        {
-            int ip = i+1;
-            int im = (i-1+nx+2) % (nx+2);
-            for (int j = 0; j < ny; j++)
-            {
-                int jp = (j+1) % ny;
-                int jm = (j-1+ny) % ny;
-                
-                for (int k = 0; k < nz; k++)
-                {
-                    int kp = (k+1)%nz;
-                    int km = (k-1+ny)%nz;
-                    
-                    float v1n = 3.0*recon[i](j, k) - recon[ip](j, k) - recon[i](jp, k) - recon[i](j, kp);
-                    float v1d = sqrt(eps + ( recon[i](j, k) - recon[ip](j, k) ) * ( recon[i](j, k) - recon[ip](j, k) )
-                                      +  ( recon[i](j, k) - recon[i](jp, k) ) * ( recon[i](j, k) - recon[i](jp, k) )
-                                      +  ( recon[i](j, k) - recon[i](j, kp) ) * ( recon[i](j, k) - recon[i](j, kp) ));
-                    float v2n = recon[i](j, k) - recon[im](j, k);
-                    float v2d = sqrt(eps + ( recon[im](j, k) - recon[i](j, k) ) * ( recon[im](j, k) - recon[i](j, k) )
-                                      +  ( recon[im](j, k) - recon[im](jp, k) ) * ( recon[im](j, k) - recon[im](jp, k) )
-                                      +  ( recon[im](j, k) - recon[im](j, kp)) * ( recon[im](j, k) - recon[im](j, kp)));
-                    float v3n = recon[i](j, k) - recon[i](jm, k);
-                    float v3d = sqrt(eps + ( recon[i](jm, k) - recon[ip](jm, k) ) * ( recon[i](jm, k) - recon[ip](jm, k) )
-                                      +  ( recon[i](jm, k) - recon[i](j, k) ) * ( recon[i](jm, k) - recon[i](j, k) )
-                                      +  ( recon[i](jm, k) - recon[i](jm, kp) ) * ( recon[i](jm, k) - recon[i](jm, kp) ) );
-                    float v4n = recon[i](j, k) - recon[i](j, km);
-                    float v4d = sqrt(eps + ( recon[i](j, km) - recon[ip](j, km)) * ( recon[i](j, km) - recon[ip](j, km))
-                                      + ( recon[i](j, km) - recon[i](jp, km)) * ( recon[i](j, km) - recon[i](jp, km))
-                                      + ( recon[i](j, km) - recon[i](j, k) ) * ( recon[i](j, km) - recon[i](j, k) ) );
-                    tv_recon[i](j,k) = v1n/v1d + v2n/v2d + v3n/v3d + v4n/v4d;
-                    tv_norm_loc += tv_recon[i](j,k) * tv_recon[i](j,k);
-                }
-            }
-        }
+	for (int j = 0; j < ny; j++) {
+	  int jp = (j+1) % ny;
+	  int jm = (j-1+ny) % ny;
+	  for (int k = 0; k < nz; k++) {
+	    int kp = (k+1)%nz;
+	    int km = (k-1+ny)%nz;
+	    
+	    float v1n = 3.0*recon[i](j, k) - recon[ip](j, k) - recon[i](jp, k) - recon[i](j, kp);
+	    float v1d = sqrt(eps + ( recon[i](j, k) - recon[ip](j, k) ) * ( recon[i](j, k) - recon[ip](j, k) )
+			     +  ( recon[i](j, k) - recon[i](jp, k) ) * ( recon[i](j, k) - recon[i](jp, k) )
+			     +  ( recon[i](j, k) - recon[i](j, kp) ) * ( recon[i](j, k) - recon[i](j, kp) ));
+	    float v2n = recon[i](j, k) - recon[im](j, k);
+	    float v2d = sqrt(eps + ( recon[im](j, k) - recon[i](j, k) ) * ( recon[im](j, k) - recon[i](j, k) )
+			     +  ( recon[im](j, k) - recon[im](jp, k) ) * ( recon[im](j, k) - recon[im](jp, k) )
+			     +  ( recon[im](j, k) - recon[im](j, kp)) * ( recon[im](j, k) - recon[im](j, kp)));
+	    float v3n = recon[i](j, k) - recon[i](jm, k);
+	    float v3d = sqrt(eps + ( recon[i](jm, k) - recon[ip](jm, k) ) * ( recon[i](jm, k) - recon[ip](jm, k) )
+			     +  ( recon[i](jm, k) - recon[i](j, k) ) * ( recon[i](jm, k) - recon[i](j, k) )
+			     +  ( recon[i](jm, k) - recon[i](jm, kp) ) * ( recon[i](jm, k) - recon[i](jm, kp) ) );
+	    float v4n = recon[i](j, k) - recon[i](j, km);
+	    float v4d = sqrt(eps + ( recon[i](j, km) - recon[ip](j, km)) * ( recon[i](j, km) - recon[ip](j, km))
+			     + ( recon[i](j, km) - recon[i](jp, km)) * ( recon[i](j, km) - recon[i](jp, km))
+			     + ( recon[i](j, km) - recon[i](j, k) ) * ( recon[i](j, km) - recon[i](j, k) ) );
+	    tv_recon[i](j,k) = v1n/v1d + v2n/v2d + v3n/v3d + v4n/v4d;
+	    tv_norm_loc += tv_recon[i](j,k) * tv_recon[i](j,k);
+	  }
+	}
+      }
       if (nproc==1) 
 	tv_norm = tv_norm_loc;
       else
@@ -628,10 +612,9 @@ void mpi_ctvlib::tv_gd_3D(int ng, float dPOCS)
       
       // Gradient Descent.
 #pragma omp parallel for
-      for (int l = 0; l < nx; l++)
-        {
-	  recon[l] -= dPOCS * tv_recon[l] / tv_norm;
-        }
+      for (int l = 0; l < nx; l++) {
+	recon[l] -= dPOCS * tv_recon[l] / tv_norm;
+      }
     }
     positivity();
 }
@@ -674,7 +657,6 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
     H5Sclose(mspace); 
     H5Dclose(dset);
     H5Fclose(fd);
-
   } else {
     MPI_File fh; 
     int rc= MPI_File_open(MPI_COMM_WORLD, filename, MPI_MODE_WRONLY | MPI_MODE_CREATE, MPI_INFO_NULL, &fh); 
@@ -682,11 +664,9 @@ void mpi_ctvlib::save_recon(char *filename, int type=0) {
 #pragma omp parallel for
     for (int i=0; i<Nslice_loc; i++)
       memcpy(&buf[i*Ny*Nz], &recon[i](0, 0), Ny*Nz*sizeof(float));
-    
     MPI_File_write_at(fh, sizeof(float)*first_slice*Ny*Nz, buf, Nslice_loc*Ny*Nz, MPI_FLOAT, MPI_STATUS_IGNORE);
     MPI_File_close(&fh);
     MPI_File_sync(fh);
-    if (rank==0) cout << "write done " << endl; 
     delete [] buf; 
   }
 }
@@ -701,6 +681,6 @@ void mpi_ctvlib::restart_recon()
     #pragma omp parallel for
     for (int s = 0; s < Nslice_loc; s++)
     {
-        recon[s] = Mat::Zero(Ny,Ny);
+        recon[s] = Mat::Zero(Ny,Nz);
     }
 }
