@@ -257,17 +257,15 @@ void mpi_ctvlib::updateLeftSlice(Mat *vol) {
     /*
     Need to make sure this is OK. 
     */
-    MPI_Status status;
     int tag = 0;
+    MPI_Request request; 
     if (nproc>1) {
 #ifdef DEBUG
       cout << "rank" << rank << "sending the message" << endl; 
 #endif
-      MPI_Send(&vol[Nslice_loc-1](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD);
-#ifdef DEBUG
-      cout << "rank" << rank << "sending the message - done" << endl; 
-#endif
-      MPI_Recv(&vol[Nslice_loc+1](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, &status);
+      MPI_Isend(&vol[Nslice_loc-1](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, &request);
+      MPI_Recv(&vol[Nslice_loc+1](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      MPI_Wait(&request, MPI_STATUS_IGNORE);
 #ifdef DEBUG
       cout << "message received" << endl; 
 #endif
@@ -279,17 +277,15 @@ void mpi_ctvlib::updateLeftSlice(Mat *vol) {
 
 
 void mpi_ctvlib::updateRightSlice(Mat *vol) {
-    MPI_Status status;
     int tag = 0;
+    MPI_Request request; 
     if (nproc>1) {
 #ifdef DEBUG
       cout << "rank" << rank << "sending the message" << endl; 
 #endif
-      MPI_Send(&vol[0](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD);
-#ifdef DEBUG
-      cout << "rank" << rank << "sending the message - done" << endl; 
-#endif
-      MPI_Recv(&vol[Nslice_loc](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, &status);
+      MPI_Isend(&vol[0](0, 0), Ny*Nz, MPI_FLOAT, (rank-1+nproc)%nproc, tag, MPI_COMM_WORLD, &request);
+      MPI_Recv(&vol[Nslice_loc](0, 0), Ny*Nz, MPI_FLOAT, (rank+1)%nproc, tag, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+      MPI_Wait(&request, MPI_STATUS_IGNORE);
 #ifdef DEBUG
       cout << "message received" << endl; 
 #endif

@@ -69,10 +69,11 @@ int main(int argc, char **argv) {
   if (noise)
     tomo_obj.set_background(1.0);
 
+  if (rank==0) cout << "create projections" << endl; 
   tomo_obj.create_projections();
   if (noise)
     tomo_obj.poissonNoise(SNR);
-  
+  if (rank==0) cout << "original_tv_3D" << endl; 
   tomo_obj.original_tv_3D();
   for (int i = 0; i<niter; i++) {
     if (rank==0) cout << "iter " << i << endl; 
