@@ -1,5 +1,4 @@
 #include "mpi_ctvlib.h"
-#include "mpi.h"
 #include "hdf5.h"
 #include <iostream>
 #include "timing.h"
@@ -27,11 +26,12 @@ int main(int argc, char **argv) {
   bool noise = true; 
   bool save_recon = true; 
   float dPOCS, dp;
-  MPI_Init(&argc, &argv);
   int i=0;
   char fname[255] = "../Tilt_Series/256_au_sto.h5";
   char measure[255] = "../256_au_sto_measurement.h5";
   char output[255] = "../output.h5";
+  cout << "**Initialized " << endl; 
+  mpi_ctvlib tomo_obj(&argc, &argv);
 
   while(i<argc) {
     if (strcmp(argv[i], "-d")==0) {
@@ -50,34 +50,33 @@ int main(int argc, char **argv) {
       i=i+1;
     }
   }
-  int rank, nproc; 
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-  if (rank==0) {
+  int verbose = tomo_obj.get_verbose();
+  if (verbose==1) {
     cout << "# ===== Command Line Inputs" << endl; 
     cout << "* Data: " << fname << endl;
     cout << "* Measurement: " << measure << endl;
     cout << "* Output: " << output << endl;
     cout << "* Niter: " << niter << endl; 
   }
-  mpi_ctvlib tomo_obj;
-  if (rank==0) cout << "# ==== load volume" << endl; 
+
+  if (verbose==1) cout << "# ==== load volume" << endl; 
   tomo_obj.loadVolume(fname);
-  if (rank==0) cout << "# ==== load measurement matrix" << endl; 
+  if (verbose==1) cout << "# ==== load measurement matrix" << endl; 
   tomo_obj.loadMeasurementMatrix(measure);
-  if (rank==0) cout << "# ==== normalization" << endl; 
+  if (verbose==1) cout << "# ==== normalization" << endl; 
   tomo_obj.normalization();
   if (noise)
     tomo_obj.set_background(1.0);
 
-  if (rank==0) cout << "# ==== create projections" << endl; 
+  if (verbose==1) cout << "# ==== create projections" << endl; 
   tomo_obj.create_projections();
   if (noise)
     tomo_obj.poissonNoise(SNR);
 
-  if (rank==0) cout << "# ==== original_tv_3D" << endl; 
+  if (verbose==1) cout << "# ==== original_tv_3D" << endl; 
   tomo_obj.original_tv_3D();
   for (int i = 0; i<niter; i++) {
-    if (rank==0) cout << "iter " << i << endl; 
+    if (verbose==1) cout << "iter " << i << endl; 
     tomo_obj.copy_recon();
 
     tt.start_clock("sART");
@@ -108,15 +107,14 @@ int main(int argc, char **argv) {
     float dg = tomo_obj.matrix_2norm();
     if ((dg > dp * r_max) && (dd > eps))
       dPOCS *= alpha_red;
-    if (rank==0) {
+    if (verbose==1) {
       cout << "  - dd: " << dd  << endl;
       cout << "  - rmse: " << rmse  << endl;
       cout << "  - tv: " << tv  << endl; 
     }
   }
   tomo_obj.save_recon(output, 0);
-  if (rank==0)
+  if (verbose==1)
     tt.PrintTiming();
-  MPI_Finalize();
   return 0; 
 }

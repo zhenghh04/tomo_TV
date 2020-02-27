@@ -8,10 +8,10 @@ parser.add_argument("--tiltAngles", '-a', default='au_sto_tiltAngles.npy')
 parser.add_argument("--tiltSeries", '-s', default='1024_au_sto_tiltser.npy')
 parser.add_argument("--output", '-o', default='output.h5')
 args = parser.parse_args()
-print(np.load(args.tiltSeries, allow_pickle=True))
-series=np.load(args.tiltSeries, allow_pickle=True)[1]
+series=np.load(args.tiltSeries)
+print(series)
 h5 = h5py.File(args.output, 'w')
-h5.create_dataset('tiltAngles', data=np.load(args.tiltAngles, allow_pickle=True))
+h5.create_dataset('tiltAngles', data=np.load(args.tiltAngles))
 fs=h5.create_dataset('tiltSeries', data=series)
 h5.close()
 

@@ -25,21 +25,38 @@ using namespace std;
 typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat;
 typedef Eigen::SparseMatrix<float, Eigen::RowMajor> SpMat;
 
-void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
-  hid_t fd = H5Fopen(fname, H5F_ACC_RDONLY, H5P_DEFAULT);
-  hid_t dset = H5Dopen(fd, "/matrix", H5P_DEFAULT);
-  hid_t space_s = H5Dget_space(dset);
-  hsize_t gdims[2];
-  int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
-
+mpi_ctvlib::mpi_ctvlib(int *argc, char ***argv) {
+  MPI_Init(argc, argv);
+  MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+  MPI_Comm_size(MPI_COMM_WORLD, &nproc);
   if (rank==0) {
+    verbose=1;
+  } else {
+    verbose=0;
+  }
+}
+
+void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
+  hsize_t gdims[2];
+  hid_t fd, dset, space_s; 
+  if (rank==0) {
+    fd = H5Fopen(fname, H5F_ACC_RDONLY, H5P_DEFAULT);
+    dset = H5Dopen(fd, "/matrix", H5P_DEFAULT);
+    space_s = H5Dget_space(dset);
+    int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
     cout << "* reading measurement matrix from " << fname << endl; 
     cout << "* Dim: " << gdims[0] << "x" << gdims[1] << endl; 
   }
+  MPI_Bcast(gdims, 2, MPI_LONG_INT, 0, MPI_COMM_WORLD);
   float *Mat = new float[gdims[0]*gdims[1]];
-  H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, Mat);
-  H5Dclose(dset);
-  H5Fclose(fd);
+  if (rank==0) {
+    H5Dread(dset, H5T_NATIVE_FLOAT, H5S_ALL, H5S_ALL, H5P_DEFAULT, Mat);
+    H5Dclose(dset);
+    H5Fclose(fd);
+    cout << "* rank 0 loaded measurement matrix from the file system" << endl; 
+  }
+  MPI_Bcast(Mat, gdims[0]*gdims[1], MPI_FLOAT, 0, MPI_COMM_WORLD);
+  if (rank==0) cout << "* rank 0 broadcasted the matrix to other rank" << endl; 
   for (int i=0; i < gdims[1]; i++)
   {
     A.coeffRef(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
@@ -48,10 +65,7 @@ void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
   delete [] Mat; 
 } 
 
-
 void mpi_ctvlib::loadVolume(char *fname) {
-  MPI_Comm_size(MPI_COMM_WORLD, &nproc); 
-  MPI_Comm_rank(MPI_COMM_WORLD, &rank); 
   if (rank==0) cout << "* Reading data from " << fname << endl; 
   hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
   MPI_Info info = MPI_INFO_NULL; 
@@ -111,9 +125,6 @@ void mpi_ctvlib::init(int Ns, int Nray, int Nproj)
     Ncol = Ny*Nz;
     A.resize(Nrow,Ncol);
     innerProduct.resize(Nrow);
-
-    MPI_Comm_size(MPI_COMM_WORLD, &nproc);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     
     //Calculate the number of slices for each rank.
     Nslice_loc = int(Nslice/nproc);
@@ -166,9 +177,14 @@ int mpi_ctvlib::get_rank() {
   return rank;
 }
 
+int mpi_ctvlib::get_verbose() {
+  return verbose; 
+}
+
 int mpi_ctvlib::get_nproc() {
   return nproc; 
 }
+
 //Import tilt series (projections) from Python.
 void mpi_ctvlib::setTiltSeries(Mat in)
 {
@@ -683,4 +699,9 @@ void mpi_ctvlib::restart_recon()
     {
         recon[s] = Mat::Zero(Ny,Nz);
     }
+}
+
+
+mpi_ctvlib::~mpi_ctvlib() {
+  MPI_Finalize();
 }

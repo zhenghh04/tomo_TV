@@ -19,6 +19,7 @@ class mpi_ctvlib
 public: 
   typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat;
   typedef Eigen::SparseMatrix<float, Eigen::RowMajor> SpMat;
+  mpi_ctvlib(int *argc=NULL, char ***argv=NULL);
   // Member Variables.
   Mat *recon, *temp_recon, *tv_recon, *original_volume, *recon_gathered;
   //    Mat& left_slice, right_slice; //I don't need this any more
@@ -39,7 +40,7 @@ public:
   void setOriginalVolume(Mat in, int slice);
   void create_projections();
   void poissonNoise(int SNR);
-  
+  int verbose;
   // Constructs Measurement Matrix.
   void loadA(Eigen::Ref<Mat> pyA);
   void normalization();
@@ -82,6 +83,8 @@ public:
   // Return projections to python. 
   Mat get_projections();
   void init(int, int, int);
+  int get_verbose();
+  ~mpi_ctvlib();
 };
 
 #endif /* mpi_ctvlib_hpp */
