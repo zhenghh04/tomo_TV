@@ -703,5 +703,6 @@ void mpi_ctvlib::restart_recon()
 
 
 mpi_ctvlib::~mpi_ctvlib() {
+  if (rank==0) cout << "Finished the work!!!" << endl; 
   MPI_Finalize();
 }

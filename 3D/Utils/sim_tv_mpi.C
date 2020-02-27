@@ -5,6 +5,8 @@
 using namespace std; 
 
 int main(int argc, char **argv) {
+  cout << "**Initialized " << endl; 
+  return 0;
   // Number of iteration
   Timing tt;
   int niter = 10;
@@ -31,8 +33,8 @@ int main(int argc, char **argv) {
   char measure[255] = "../256_au_sto_measurement.h5";
   char output[255] = "../output.h5";
   cout << "**Initialized " << endl; 
-  mpi_ctvlib tomo_obj(&argc, &argv);
 
+  mpi_ctvlib tomo_obj(&argc, &argv);
   while(i<argc) {
     if (strcmp(argv[i], "-d")==0) {
       strcpy(fname, argv[i+1]);
