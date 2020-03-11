@@ -60,7 +60,7 @@ void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
   if (rank==0) cout << "* rank 0 broadcasted the matrix to other rank" << endl; 
   float t1 = MPI_Wtime();
   int x = Mat[gdims[1]-1];
-
+  A.reserve(gdims[1]);
   for (int i=0; i < gdims[1]; i++)
   {
     A.coeffRef(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
