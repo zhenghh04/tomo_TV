@@ -21,9 +21,9 @@
 using namespace Eigen;
 using namespace std;
 
-
 typedef Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor> Mat;
 typedef Eigen::SparseMatrix<float, Eigen::RowMajor> SpMat;
+int process_mem_usage(double& vm_usage, double& resident_set);
 
 mpi_ctvlib::mpi_ctvlib(int *argc, char ***argv) {
   MPI_Init(argc, argv);
@@ -60,17 +60,15 @@ void mpi_ctvlib::loadMeasurementMatrix(char *fname) {
   if (rank==0) cout << "* rank 0 broadcasted the matrix to other rank" << endl; 
   float t1 = MPI_Wtime();
   int x = Mat[gdims[1]-1];
-
-  A.reserve(gdims[1]);
+  A.reserve(gdims[1]*2);
   for (int i=0; i < gdims[1]; i++)
   {
-    A.insert(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
+    A.coeffRef(Mat[i], Mat[gdims[1]+i]) = Mat[gdims[1]*2+i];
   }
-
+  float t2 = MPI_Wtime();
   //  for (int k=0; k<A.outerSize(); ++k)
   //    for (SparseMatrix<float>::InnerIterator it(A,k); it; ++it)
   //      it.valueRef() = new_val(it.row(), it.col());
-  float t2 = MPI_Wtime();
   if (rank==0) cout << "* set A coefficient with " << t2 - t1 << " seconds" << endl; 
   A.makeCompressed();
   if (rank==0) cout << "* A compressed " << endl; 
@@ -81,10 +79,13 @@ void mpi_ctvlib::loadVolume(char *fname) {
   if (rank==0) cout << "* Reading data from " << fname << endl; 
   hid_t plist_id = H5Pcreate(H5P_FILE_ACCESS);
   MPI_Info info = MPI_INFO_NULL; 
-  H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, info); 
+  bool mpio = true;
+  //if (Nslice*Ny/nproc*Nz*sizeof(float) < 2048.*1024*1024 ) {
+  //mpio = false;
+  //}
+  if (mpio) H5Pset_fapl_mpio(plist_id, MPI_COMM_WORLD, info); 
   hid_t fd = H5Fopen(fname, H5F_ACC_RDONLY, plist_id);
   hid_t dset = H5Dopen(fd, "/tiltSeries", H5P_DEFAULT);
-
   hid_t space_s = H5Dget_space(dset);
   hsize_t gdims[3];
   int ndims = H5Sget_simple_extent_dims(space_s, gdims, NULL);
@@ -99,32 +100,60 @@ void mpi_ctvlib::loadVolume(char *fname) {
     first_slice += rank%nproc; }
   int last_slice = first_slice + Nslice_loc - 1; 
 
-  hsize_t ldims[3] = {Nslice_loc, Nray, Nproj};
-  hid_t fspace = H5Screate_simple(3, gdims, NULL);
-  hid_t mspace = H5Screate_simple(3, ldims, NULL);
-  hsize_t offset[3] = {first_slice, 0, 0}; 
-  hsize_t count [3] = {1, 1, 1};
-  H5Sselect_hyperslab(fspace, H5S_SELECT_SET, offset, NULL, ldims, count); 
-  hid_t dxf_id = H5Pcreate(H5P_DATASET_XFER);
-  H5Pset_dxpl_mpio(dxf_id, H5FD_MPIO_COLLECTIVE);
-  float *tiltSeries = new float[Nslice_loc*Nray*Nproj]; 
+  //  float *tiltSeries = new float[Nslice_loc*Nray*Nproj]; 
   if (rank==0) {
     cout << "* Nslice: " << Nslice << endl;  
+    cout << "* Nslice_loc: " << Nslice_loc << endl; 
     cout << "* Nray: " << Nray << endl;  
     cout << "* Nproj: " << Nproj << endl;  
   }
-  H5Dread(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, tiltSeries); 
+  //int ncall = Nslice_loc*Nray*Nproj/1024/1024/1024/2;
+  //if ((Nslice_loc*Nray*Nproj)%(2048*1024*1024)>0) ncall++;
+
+  hid_t fspace = H5Screate_simple(3, gdims, NULL);  
+
+
+  hsize_t count [3] = {1, 1, 1};
+  hid_t dxf_id = H5Pcreate(H5P_DATASET_XFER);
+  if (mpio) H5Pset_dxpl_mpio(dxf_id, H5FD_MPIO_COLLECTIVE);
+  init(Nslice, Nray, Nproj);
+  double t0, t1; 
+  hid_t mspace; 
+  if (Nproj*Nray >= 1024*1024) {
+    hsize_t ldims[3] = {1, Nray, Nproj};
+    mspace = H5Screate_simple(3, ldims, NULL);
+    t0 = MPI_Wtime();
+    for(int i=0; i<Nslice_loc; i++) {
+      hsize_t offset[3] = {first_slice + i, 0, 0}; 
+      H5Sselect_hyperslab(fspace, H5S_SELECT_SET, offset, NULL, ldims, count); 
+      H5Dread(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, &original_volume[i](0, 0)); 
+    }
+    t1 = MPI_Wtime();
+  } else {
+    hsize_t ldims[3] = {Nslice_loc, Nray, Nproj};
+    mspace = H5Screate_simple(3, ldims, NULL);
+    double t0 = MPI_Wtime();
+    hsize_t offset[3] = {first_slice, 0, 0}; 
+    H5Sselect_hyperslab(fspace, H5S_SELECT_SET, offset, NULL, ldims, count); 
+    float *tmp = new float[Nslice_loc*Nray*Nproj]; 
+    t0 = MPI_Wtime();
+    H5Dread(dset, H5T_NATIVE_FLOAT, mspace, fspace, dxf_id, tmp); 
+    t1 = MPI_Wtime();
+#pragma omp parallel for
+    for(int i=0; i<Nslice_loc; i++) {
+      memcpy(&original_volume[i](0, 0), &tmp[i*Nray*Nproj], Nray*Nproj*sizeof(float));
+    }
+    delete [] tmp; 
+  }
+  if (rank==0) {
+    cout << "* Finished reading data; took " << t1 - t0 << " seconds" << endl;
+  }
   H5Pclose(plist_id);
   H5Sclose(fspace);
   H5Sclose(mspace);
   H5Dclose(dset);
   H5Pclose(dxf_id);
   H5Fclose(fd);
-  init(Nslice, Nray, Nproj);
-
-  for(int i=0; i<Nslice_loc; i++) {
-    memcpy(&original_volume[i](0, 0), &tiltSeries[i*Nray*Nproj], Nray*Nproj*sizeof(float));
-  }
 } 
 
 void mpi_ctvlib::init(int Ns, int Nray, int Nproj)

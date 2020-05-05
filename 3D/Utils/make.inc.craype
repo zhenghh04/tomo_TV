@@ -1,0 +1,8 @@
+CXX = icc
+MPXX = CC 
+HDF5_INC = -I$(HDF5_ROOT)/include 
+HDF5_LIBS= -L$(HDF5_ROOT)/lib -lhdf5 -lhdf5_hl 
+CPATH=""
+CXXFLAGS = -O3 -fPIC -shared -qopenmp -std=c++11  -I$(HOME)/.local/include/python3.6m/ `python3 -m pybind11 --includes` $(HDF5_INC) -g
+EIGEN = -I/soft/libraries/eigen3/3.3.5/include/eigen3
+HPCTW = -L/soft/datascience/hpctw -lhpmprof -lbfd -liberty -lz

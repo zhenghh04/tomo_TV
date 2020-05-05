@@ -19,8 +19,8 @@ ctvlib: ctvlib.o  ctvlib.hpp
 mpi_ctvlib: mpi_ctvlib.cpp mpi_ctvlib.hpp
 	$(MPXX) $(CXXFLAGS) $(EIGEN) $(PYBIND) $(PYBIND11) mpi_ctvlib.cpp -o $(MPICONFIG) $(HDF5_LIBS) $(HPCTW)
 
-sim_tv: sim_tv_mpi.o mpi_ctvlib.o mpi_ctvlib.h
-	$(MPXX) $(CXXFLAGS) $(EIGEN) -o ../sim_tv mpi_ctvlib.o sim_tv_mpi.o $(HDF5_LIBS) $(HPCTW) $(HDF5_LIBS) $(MKL)
+sim_tv: sim_tv_mpi.o mpi_ctvlib.o mpi_ctvlib.h mem.o
+	$(MPXX) $(CXXFLAGS) $(EIGEN) -o ../sim_tv mpi_ctvlib.o mem.o sim_tv_mpi.o $(HDF5_LIBS) $(HPCTW) $(HDF5_LIBS) $(MKL)
 
 clean:
 	rm -rf *.so *.o *.x sim_tv ../sim_tv
