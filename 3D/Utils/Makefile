@@ -11,7 +11,7 @@ MPICONFIG = mpi_ctvlib`python3-config --extension-suffix`
 %.o : %.cpp
 	$(MPXX) $(CXXFLAGS) $(EIGEN) -c $< -o $@
 
-all: sim_tv ctvlib mpi_ctvlib
+all: sim_tv #ctvlib mpi_ctvlib
 
 ctvlib: ctvlib.o  ctvlib.hpp
 	$(CXX) $(CXXFLAGS) $(EIGEN) $(PYBIND) $(PYBIND11) ctvlib.o -o $(PYCONFIG)
