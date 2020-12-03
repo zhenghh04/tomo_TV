@@ -16,7 +16,7 @@
 #include <random>
 #include <iostream>
 #include <mpi.h>
-
+#include "hdf5.h"
 
 #define PI 3.14159265359
 
@@ -32,7 +32,7 @@ mpi_ctvlib::mpi_ctvlib(int Ns, int Nray, int Nproj)
     //Intialize all the Member variables.
     Nslice = Ns;
     Ny = Nray;
-    Nz = Nray;
+    Nz = Nproj;
     Nrow = Nray*Nproj;
     Ncol = Ny*Nz;
     A.resize(Nrow,Ncol);
@@ -252,7 +252,17 @@ void mpi_ctvlib::positivity()
     #pragma omp parallel for
     for(int i=0; i<Nslice_loc; i++)
     {
-        recon[i] = (recon[i].array() < 0).select(0, recon[i]);
+      recon[i] = (recon[i].array() < 0).select(0, recon[i]);
+    }
+}
+
+// Set Background Value
+void mpi_ctvlib::set_background(float b) 
+{
+    #pragma omp parallel for
+    for(int i=0; i<Nslice_loc; i++)
+    {
+      recon[i] = (recon[i].array() == 0).select(b, recon[i]);
     }
 }
 
@@ -353,19 +363,18 @@ void mpi_ctvlib::loadA(Eigen::Ref<Mat> pyA)
     {
         A.coeffRef(pyA(0,i), pyA(1,i)) = pyA(2,i);
     }
-    A.makeCompressed();
 }
 
-void mpi_ctvlib::update_proj_angles(Eigen::Ref<Mat> pyA)
+void mpi_ctvlib::update_proj_angles(Eigen::Ref<Mat> pyA, int Nproj)
 {
-    Nrow = Nray * pyA.cols();
-    A.resize(Nrow,Ncol);
+    Nrow = Nray * Nproj;
+    
+    A.conservativeResize(Nrow,Ncol);
     b.resize(Nslice_loc, Nrow); g.resize(Nslice_loc, Nrow);
     
     for (int i=0; i < pyA.cols(); i++) {
         A.coeffRef(pyA(0,i), pyA(1,i)) = pyA(2,i);
     }
-    A.makeCompressed();
 }
 
 void mpi_ctvlib::updateLeftSlice(Mat *vol) {

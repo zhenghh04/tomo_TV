@@ -69,7 +69,7 @@ public:
     
     // Acquire local copy of reconstruction.
     void copy_recon();
-    
+  void set_background(float);
     // Measure 2-norm of projections and reconstruction.
     float matrix_2norm();
     float vector_2norm();
