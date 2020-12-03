@@ -1,0 +1,13 @@
+TOPDIR=/lus/theta-fs0/projects/TomoADSP/soft
+CXX = g++ -fPIC -fopenmp
+MPXX = mpicxx -fPIC -fopenmp
+CUDAXX = nvcc -shared -Xcompiler -fPIC -c
+CXXFLAGS = -O3 -Wno-div-by-zero -shared -std=c++11  -I$(HOME)/.local/include/python3.6m/ `python3 -m pybind11 --includes`
+EIGEN = -I/lus/theta-fs0/software/libraries/eigen3/3.3.5/include/eigen3
+ASTRA = -DASTRA_CUDA -I${TOPDIR}/tomo_tv_astra -I${TOPDIR}/tomo_tv_astra/include
+ASTRA_LIB = -L${TOPDIR}/tomo_tv_astra/lib -lastra
+CUDA = -I/usr/local/cuda/include -L/usr/local/cuda/lib64 -lcudart -lz
+HDF5_ROOT=${TOPDIR}/hdf5/
+HDF5_INC = -I${HDF5_ROOT}/include
+HDF5_LIBS= -L${HDF5_ROOT}/lib -lhdf5 -lhdf5_hl
+PREFIX=${TOPDIR}/tomo_TV
