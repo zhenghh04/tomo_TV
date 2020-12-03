@@ -11,10 +11,19 @@ shared_library:
 	g++ -shared container/*.o regularizers/*.o -o aux_func.so
 
 astra_ctvlib: astra_ctvlib.cpp astra_ctvlib.hpp
-	$(CXX) $(CXXFLAGS) $(EIGEN) $(ASTRA) $(CUDA) $(PYBIND) $(PYBIND11) astra_ctvlib.cpp -o $(GPUCONFIG) $(ASTRA_LIB) aux_func.so 
+	$(MPXX) $(CXXFLAGS) $(EIGEN) $(ASTRA) $(CUDA) $(PYBIND) $(PYBIND11) astra_ctvlib.cpp -o $(GPUCONFIG) $(ASTRA_LIB) aux_func.so 
 
 mpi_astra_ctvlib: mpi_astra_ctvlib.cpp mpi_astra_ctvlib.hpp
 	$(MPXX) $(CXXFLAGS) $(EIGEN) $(ASTRA) $(CUDA) $(HDF5_INC) $(PYBIND) $(PYBIND11) mpi_astra_ctvlib.cpp -o $(MPIGPUCONFIG) $(ASTRA_LIB) $(HDF5_LIBS) aux_func.so
 
+install: aux_func.so 
+	[ -e $(PREFIX) ] || mkdir $(PREFIX)
+	[ -e $(PREFIX)/include ] || mkdir $(PREFIX)/include
+	cp astra_ctvlib.hpp mpi_astra_ctvlib.hpp $(PREFIX)/include
+	[ -e $(PREFIX)/lib ] || mkdir $(PREFIX)/lib
+	cp aux_func.so $(GPUCONFIG) $(MPIGPUCONFIG) $(PREFIX)/lib
+	[ -e $(PREFIX)/lib/python3.7/ ] || mkdir $(PREFIX)/lib/python3.7/
+	[ -e $(PREFIX)/lib/python3.7/site-packages ] || mkdir $(PREFIX)/lib/python3.7/site-packages/
+	cp *.py $(PREFIX)/lib/python3.7/site-packages/
 clean:
 	rm -rf *.so *.o
